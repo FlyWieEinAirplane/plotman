@@ -44,7 +44,25 @@ def dstdirs_to_youngest_phase(all_jobs: typing.List[job.Job]) -> typing.Dict[str
             result[j.dstdir] = j.progress()
     return result
 
-def phases_permit_new_job(phases: typing.List[job.Phase], d: str, sched_cfg: plotman.configuration.Scheduling, dir_cfg: plotman.configuration.Directories) -> bool:
+def dstdirs_to_most_space(dst_dirs, jobs):
+    '''Return destination disk with most free space, will raise Expeption if no
+    disks have free space'''
+    plot_size = 108900000000
+    disk_free = dict((i, disk_free(i)) for i in dst_dirs)
+    for x in jobs: # remove in flight plotting from returned free space
+        if x.dstdir in disk_free:
+            disk_free[x.dstdir] = disk_free[x.dstdir] - plot_size
+    path, free = sorted(disk_free.items(), key=lambda x: x[1], reverse=True)[0]
+    if free > plot_size:
+        return path
+    raise Exception("No more free space on any dst dirs.")
+
+def disk_free(dir):
+    '''Return how much free space in bytes for dst_dir'''
+    disk = os.statvfs(dir)
+    return disk.f_bavail * disk.f_bsize
+
+def phases_permit_new_job(phases, d, sched_cfg, dir_cfg):
     '''Scheduling logic: return True if it's OK to start a new job on a tmp dir
        with existing jobs in the provided phases.'''
     # Filter unknown-phase jobs
@@ -58,15 +76,15 @@ def phases_permit_new_job(phases: typing.List[job.Phase], d: str, sched_cfg: plo
     minor = sched_cfg.tmpdir_stagger_phase_minor
     # tmpdir_stagger_phase_limit default is 1, as declared in configuration.py
     stagger_phase_limit = sched_cfg.tmpdir_stagger_phase_limit
-    
+
     # Limit the total number of jobs per tmp dir. Default to overall max
     # jobs configuration, but restrict to any configured overrides.
     max_plots = sched_cfg.tmpdir_max_jobs
-    
+
     # Check if any overrides exist for the current job
     if sched_cfg.tmp_overrides is not None and d in sched_cfg.tmp_overrides:
         curr_overrides = sched_cfg.tmp_overrides[d]
-    
+
         # Check for and assign major & minor phase overrides
         if curr_overrides.tmpdir_stagger_phase_major is not None:
             major = curr_overrides.tmpdir_stagger_phase_major
@@ -78,9 +96,9 @@ def phases_permit_new_job(phases: typing.List[job.Phase], d: str, sched_cfg: plo
         # Check for and assign stagger phase limit override
         if curr_overrides.tmpdir_max_jobs is not None:
             max_plots = curr_overrides.tmpdir_max_jobs
-        
+
     milestone = job.Phase(major,minor)
-    
+
     # Check if phases pass the criteria
     if len([p for p in phases if p < milestone]) >= stagger_phase_limit:
         return False
@@ -137,6 +155,22 @@ def maybe_start_new_plot(dir_cfg: plotman.configuration.Directories, sched_cfg: 
                     dstdir = max(dir2ph, key=key)
 
             log_file_path = log_cfg.create_plot_log_path(time=pendulum.now())
+            # Select the dst dir least recently selected
+            if sched_cfg.dst_dir_with_most_free_space:
+                dstdir = dstdirs_to_most_space(dir_cfg.dst, jobs)
+            else:
+                dir2ph = { d:ph for (d, ph) in dstdirs_to_youngest_phase(jobs).items()
+                          if d in dir_cfg.dst and ph is not None}
+                unused_dirs = [d for d in dir_cfg.dst if d not in dir2ph.keys()]
+                dstdir = ''
+                if unused_dirs:
+                    dstdir = random.choice(unused_dirs)
+                else:
+                    dstdir = dstdirs_to_most_space(dir_cfg.dst, jobs)
+
+            plot_size = 108900000000
+            if disk_free(dstdir) < plot_size:
+                return (False, "Not enough disk free on that dst drive %s" % dstdir)
 
             plot_args: typing.List[str]
             if plotting_cfg.type == "madmax":
@@ -169,7 +203,7 @@ def maybe_start_new_plot(dir_cfg: plotman.configuration.Directories, sched_cfg: 
                 if plotting_cfg.chia.e:
                     plot_args.append('-e')
                 if plotting_cfg.chia.x:
-                    plot_args.append('-x')  
+                    plot_args.append('-x')
                 if dir_cfg.tmp2 is not None:
                     plot_args.append('-2')
                     plot_args.append(dir_cfg.tmp2)
