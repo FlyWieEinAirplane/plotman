@@ -58,15 +58,15 @@ def phases_permit_new_job(phases: typing.List[job.Phase], d: str, sched_cfg: plo
     minor = sched_cfg.tmpdir_stagger_phase_minor
     # tmpdir_stagger_phase_limit default is 1, as declared in configuration.py
     stagger_phase_limit = sched_cfg.tmpdir_stagger_phase_limit
-    
+
     # Limit the total number of jobs per tmp dir. Default to overall max
     # jobs configuration, but restrict to any configured overrides.
     max_plots = sched_cfg.tmpdir_max_jobs
-    
+
     # Check if any overrides exist for the current job
     if sched_cfg.tmp_overrides is not None and d in sched_cfg.tmp_overrides:
         curr_overrides = sched_cfg.tmp_overrides[d]
-    
+
         # Check for and assign major & minor phase overrides
         if curr_overrides.tmpdir_stagger_phase_major is not None:
             major = curr_overrides.tmpdir_stagger_phase_major
@@ -78,9 +78,9 @@ def phases_permit_new_job(phases: typing.List[job.Phase], d: str, sched_cfg: plo
         # Check for and assign stagger phase limit override
         if curr_overrides.tmpdir_max_jobs is not None:
             max_plots = curr_overrides.tmpdir_max_jobs
-        
+
     milestone = job.Phase(major,minor)
-    
+
     # Check if phases pass the criteria
     if len([p for p in phases if p < milestone]) >= stagger_phase_limit:
         return False
@@ -125,8 +125,8 @@ def maybe_start_new_plot(dir_cfg: plotman.configuration.Directories, sched_cfg: 
                 dstdir = tmpdir
             else:
                 # Select the dst dir least recently selected
-                dir2ph = { d:ph for (d, ph) in dstdirs_to_youngest_phase(jobs).items()
-                        if d in dst_dirs and ph is not None}
+                dir2ph = { re.sub(r"\/$", "", d):ph for (d, ph) in dstdirs_to_youngest_phase(jobs).items()
+                        if re.sub(r"\/$", "", d) in dst_dirs and ph is not None}
                 unused_dirs = [d for d in dst_dirs if d not in dir2ph.keys()]
                 dstdir = ''
                 if unused_dirs:
@@ -169,7 +169,7 @@ def maybe_start_new_plot(dir_cfg: plotman.configuration.Directories, sched_cfg: 
                 if plotting_cfg.chia.e:
                     plot_args.append('-e')
                 if plotting_cfg.chia.x:
-                    plot_args.append('-x')  
+                    plot_args.append('-x')
                 if dir_cfg.tmp2 is not None:
                     plot_args.append('-2')
                     plot_args.append(dir_cfg.tmp2)
