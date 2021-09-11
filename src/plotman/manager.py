@@ -8,6 +8,7 @@ import sys
 import time
 import typing
 from datetime import datetime
+from pprint import pprint
 
 import pendulum
 import psutil
@@ -128,46 +129,45 @@ def maybe_start_new_plot(dir_cfg: plotman.configuration.Directories, sched_cfg: 
 
         if not eligible:
             wait_reason = 'no eligible tempdirs (%ds/%ds)' % (youngest_job_age, global_stagger)
+            dst_dirs = dir_cfg.get_dst_directories()
+
+            dstdir: str
+            # Select the dst dir least recently selected
+            dir2ph = { re.sub(r"\/$", "", d):ph for (d, ph) in dstdirs_to_youngest_phase(jobs).items()
+                      if re.sub(r"\/$", "", d) in dir_cfg.dst and ph is not None}
+            unused_dirs = [d for d in dir_cfg.dst if d not in dir2ph.keys()]
+
+            # for k, v in dstdirs_to_youngest_phase(jobs).items():
+            #     print(re.sub(r"\/$", "", k), v)
+
+            # pprint(dir_cfg.dst)
+            # pprint(list(dir2ph.keys()))
+            # pprint(unused_dirs)
+            dstdir = ''
+            if unused_dirs:
+                dstdir = random.choice(unused_dirs)
+                wait_reason += ';  Next dst dir will be %s because it is unused' % (dstdir)
+            else:
+                dstdir = dstdirs_to_most_space(dir_cfg.dst, jobs)
+                wait_reason += ';  Next dst dir will be %s because it has most space left' % (dstdir)
         else:
             # Plot to oldest tmpdir.
             tmpdir = max(rankable, key=operator.itemgetter(1))[0]
 
             dst_dirs = dir_cfg.get_dst_directories()
 
-            dstdir: str
-            if dir_cfg.dst_is_tmp2():
-                dstdir = dir_cfg.tmp2  # type: ignore[assignment]
-            elif tmpdir in dst_dirs:
-                dstdir = tmpdir
-            elif dir_cfg.dst_is_tmp():
-                dstdir = tmpdir
+            # Select the dst dir least recently selected
+            dir2ph = { d:ph for (d, ph) in dstdirs_to_youngest_phase(jobs).items()
+                      if d in dir_cfg.dst and ph is not None}
+            unused_dirs = [d for d in dir_cfg.dst if d not in dir2ph.keys()]
+            pprint(unused_dirs)
+            dstdir = ''
+            if unused_dirs:
+                dstdir = random.choice(unused_dirs)
             else:
-                # Select the dst dir least recently selected
-                dir2ph = { d:ph for (d, ph) in dstdirs_to_youngest_phase(jobs).items()
-                        if d in dst_dirs and ph is not None}
-                unused_dirs = [d for d in dst_dirs if d not in dir2ph.keys()]
-                dstdir = ''
-                if unused_dirs:
-                    dstdir = random.choice(unused_dirs)
-                else:
-                    def key(key: str) -> job.Phase:
-                        return dir2ph[key]
-                    dstdir = max(dir2ph, key=key)
+                dstdir = dstdirs_to_most_space(dir_cfg.dst, jobs)
 
             log_file_path = log_cfg.create_plot_log_path(time=pendulum.now())
-            # Select the dst dir least recently selected
-            if sched_cfg.dst_dir_with_most_free_space:
-                dstdir = dstdirs_to_most_space(dir_cfg.dst, jobs)
-            else:
-                dir2ph = { d:ph for (d, ph) in dstdirs_to_youngest_phase(jobs).items()
-                          if d in dir_cfg.dst and ph is not None}
-                unused_dirs = [d for d in dir_cfg.dst if d not in dir2ph.keys()]
-                dstdir = ''
-                if unused_dirs:
-                    dstdir = random.choice(unused_dirs)
-                else:
-                    dstdir = dstdirs_to_most_space(dir_cfg.dst, jobs)
-
             plot_size = 108900000000
             if disk_free(dstdir) < plot_size:
                 return (False, "Not enough disk free on that dst drive %s" % dstdir)
